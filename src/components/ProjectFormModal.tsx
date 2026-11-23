@@ -14,6 +14,7 @@ import {
 interface ProjectFormModalProps {
   open: boolean;
   mode: 'create' | 'edit';
+  userEmail?: string | null;
   initialValues?: ProjectBriefInput;
   onClose: () => void;
   onSubmit: (values: ProjectBriefInput) => Promise<void>;
@@ -45,6 +46,7 @@ const DURATIONS: VideoDuration[] = ['15s', '30s', '60s', '90s+'];
 export function ProjectFormModal({
   open,
   mode,
+  userEmail,
   initialValues,
   onClose,
   onSubmit,
@@ -277,30 +279,47 @@ export function ProjectFormModal({
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-60 transition-colors cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-              <span>
-                {submitting
-                  ? mode === 'create'
-                    ? 'Sending Request...'
-                    : 'Saving...'
-                  : mode === 'create'
-                    ? 'Send Request'
-                    : 'Save Changes'}
-              </span>
-            </button>
+          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {mode === 'create' ? (
+              <p className="text-[11px] text-slate-500">
+                {userEmail ? (
+                  <>
+                    Signed in as <span className="font-mono text-slate-700">{userEmail}</span> ·
+                    Next: confirm with Google Sign-In to send email copy.
+                  </>
+                ) : (
+                  'Next step: confirm with Google Sign-In to email your request.'
+                )}
+              </p>
+            ) : (
+              <span />
+            )}
+
+            <div className="flex items-center justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-60 transition-colors cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>
+                  {submitting
+                    ? mode === 'create'
+                      ? 'Sending Request...'
+                      : 'Saving...'
+                    : mode === 'create'
+                      ? 'Send Request'
+                      : 'Save Changes'}
+                </span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -816,6 +816,7 @@ function StudioWorkspace() {
       <ProjectFormModal
         open={modalOpen}
         mode={modalMode}
+        userEmail={user.email}
         initialValues={
           modalMode === 'edit' && selectedProject
             ? {
@@ -837,6 +838,7 @@ function StudioWorkspace() {
       {/* Explicit Confirmation Modal Before Sending Any Gmail Notification */}
       <GmailConfirmModal
         draft={pendingEmailDraft}
+        userEmail={user.email}
         onClose={() => setPendingEmailDraft(null)}
       />
     </div>

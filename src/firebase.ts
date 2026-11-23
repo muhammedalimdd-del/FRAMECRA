@@ -64,6 +64,38 @@ export async function authorizeGmailAccess(): Promise<string> {
   return cachedAccessToken;
 }
 
+export async function confirmWithGoogleForSubmission(): Promise<{
+  user: User;
+  accessToken: string | null;
+  gmailScopeGranted: boolean;
+}> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const token = credential?.accessToken ?? null;
+    cachedAccessToken = token;
+    return {
+      user: result.user,
+      accessToken: token,
+      gmailScopeGranted: Boolean(token),
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // If user explicitly closed the popup, do not open a second popup
+    if (msg.includes('popup-closed-by-user') || msg.includes('cancelled-popup-request')) {
+      throw err;
+    }
+    // Fallback to standard Google Sign-In (no restricted scope) so any Google account can confirm
+    const fallbackResult = await signInWithPopup(auth, basicGoogleProvider);
+    cachedAccessToken = null;
+    return {
+      user: fallbackResult.user,
+      accessToken: null,
+      gmailScopeGranted: false,
+    };
+  }
+}
+
 export function getGmailAccessToken(): string | null {
   return cachedAccessToken;
 }
