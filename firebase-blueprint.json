@@ -1,0 +1,532 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account profile isolated per authenticated Google user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID matching the document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "User display name from Google profile."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "Private Google account email address."
+        },
+        "photoURL": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Optional avatar URL from Google account."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was first created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the last profile sync."
+        }
+      },
+      "required": ["uid", "displayName", "email", "photoURL", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted server-managed admin allowlist document.",
+      "type": "object",
+      "properties": {
+        "grantedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when admin privilege was granted."
+        }
+      },
+      "required": ["grantedAt"]
+    },
+    "VideoProject": {
+      "title": "VideoProject",
+      "description": "An AI video production request submitted by a client for the studio creator.",
+      "type": "object",
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable Firebase Auth UID of the requesting client."
+        },
+        "clientName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name of the requesting client."
+        },
+        "clientPhotoURL": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Optional avatar URL of the requesting client."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120,
+          "description": "Short descriptive title of the AI video project."
+        },
+        "videoType": {
+          "type": "string",
+          "enum": ["commercial", "product", "social", "explainer", "music", "cinematic"],
+          "description": "Category of the requested AI video."
+        },
+        "aspectRatio": {
+          "type": "string",
+          "enum": ["16:9", "9:16", "1:1", "21:9"],
+          "description": "Target frame aspect ratio."
+        },
+        "duration": {
+          "type": "string",
+          "enum": ["15s", "30s", "60s", "90s+"],
+          "description": "Target video runtime."
+        },
+        "visualStyle": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300,
+          "description": "Visual direction, lighting, lens, and aesthetic notes."
+        },
+        "brief": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 3000,
+          "description": "Detailed creative brief, storyline, scenes, and voiceover notes."
+        },
+        "referenceUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Optional external reference URL for inspiration or brand assets."
+        },
+        "targetDate": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32,
+          "description": "Optional target delivery date string (YYYY-MM-DD)."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["submitted", "in_production", "in_review", "changes_requested", "completed"],
+          "description": "Current production workflow status."
+        },
+        "previewUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Preview or final delivery video link published by the creator."
+        },
+        "previewNote": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Creator delivery notes accompanying the latest video cut."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Current cut version number (0 before first cut, 1..99 thereafter)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server timestamp when the request was submitted."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest project update."
+        }
+      },
+      "required": [
+        "clientId",
+        "clientName",
+        "clientPhotoURL",
+        "title",
+        "videoType",
+        "aspectRatio",
+        "duration",
+        "visualStyle",
+        "brief",
+        "referenceUrl",
+        "targetDate",
+        "status",
+        "previewUrl",
+        "previewNote",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "EditRequest": {
+      "title": "EditRequest",
+      "description": "A timecoded revision or edit request attached to a specific video project.",
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable ID of the parent VideoProject."
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable client UID denormalized from parent project for secure list queries."
+        },
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable UID of the user who filed the edit request."
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name of the edit request author."
+        },
+        "timecode": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32,
+          "description": "Optional video timestamp or range (e.g., 00:14 or 00:08-00:15)."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["visual", "pacing", "color", "audio", "text", "other"],
+          "description": "Type of edit requested."
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["standard", "high"],
+          "description": "Urgency level of the edit."
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 2000,
+          "description": "Specific actionable edit instructions."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "in_progress", "resolved"],
+          "description": "Lifecycle state of the edit request."
+        },
+        "resolutionNote": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000,
+          "description": "Optional creator explanation of how the edit was applied."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server timestamp when edit request was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest edit request update."
+        }
+      },
+      "required": [
+        "projectId",
+        "clientId",
+        "authorId",
+        "authorName",
+        "timecode",
+        "category",
+        "priority",
+        "instructions",
+        "status",
+        "resolutionNote",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Direct real-time text or voice chat message between client and studio creator inside a video project.",
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable ID of the parent VideoProject."
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable client UID denormalized from parent project for secure list queries."
+        },
+        "senderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable Firebase Auth UID of the message sender."
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name of the message sender."
+        },
+        "senderPhotoURL": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Optional avatar URL of the message sender."
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["client", "creator"],
+          "description": "Role label verified against creator/admin status."
+        },
+        "messageType": {
+          "type": "string",
+          "enum": ["text", "voice"],
+          "description": "Whether the message is a text message or a recorded voice note."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000,
+          "description": "Message body or optional caption for a voice note."
+        },
+        "audioData": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 350000,
+          "description": "Compressed audio data URL (data:audio/...) for voice notes, empty for text messages."
+        },
+        "audioDuration": {
+          "type": "integer",
+          "description": "Duration in seconds (0..65) for voice notes."
+        },
+        "timecodeRef": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32,
+          "description": "Optional timecode reference attached to the message."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server timestamp when message was sent."
+        }
+      },
+      "required": [
+        "projectId",
+        "clientId",
+        "senderId",
+        "senderName",
+        "senderPhotoURL",
+        "senderRole",
+        "messageType",
+        "text",
+        "audioData",
+        "audioDuration",
+        "timecodeRef",
+        "createdAt"
+      ]
+    },
+    "DirectThread": {
+      "title": "DirectThread",
+      "description": "Private 1-on-1 direct conversation header between a signed-in user and the studio creator.",
+      "type": "object",
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable Firebase Auth UID of the client (matches document ID)."
+        },
+        "clientName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name of the client."
+        },
+        "clientPhotoURL": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Optional avatar URL of the client."
+        },
+        "lastMessagePreview": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200,
+          "description": "Short preview of the latest text or voice message."
+        },
+        "lastMessageType": {
+          "type": "string",
+          "enum": ["text", "voice"],
+          "description": "Type of the most recent message in the thread."
+        },
+        "lastSenderRole": {
+          "type": "string",
+          "enum": ["client", "creator"],
+          "description": "Role of whoever sent the most recent message."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server timestamp when the thread was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest message in the thread."
+        }
+      },
+      "required": [
+        "clientId",
+        "clientName",
+        "clientPhotoURL",
+        "lastMessagePreview",
+        "lastMessageType",
+        "lastSenderRole",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DirectMessage": {
+      "title": "DirectMessage",
+      "description": "Private 1-on-1 text or voice message between a signed-in user and the studio creator.",
+      "type": "object",
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable client UID matching the parent DirectThread ID."
+        },
+        "senderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable Firebase Auth UID of the message sender."
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name of the message sender."
+        },
+        "senderPhotoURL": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "description": "Optional avatar URL of the message sender."
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["client", "creator"],
+          "description": "Verified role label of the sender."
+        },
+        "messageType": {
+          "type": "string",
+          "enum": ["text", "voice"],
+          "description": "Whether the message is text or a voice note."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000,
+          "description": "Message body or optional caption for a voice note."
+        },
+        "audioData": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 350000,
+          "description": "Compressed audio data URL (data:audio/...) for voice notes, empty for text messages."
+        },
+        "audioDuration": {
+          "type": "integer",
+          "description": "Voice note duration in seconds (0..65)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server timestamp when the message was sent."
+        }
+      },
+      "required": [
+        "clientId",
+        "senderId",
+        "senderName",
+        "senderPhotoURL",
+        "senderRole",
+        "messageType",
+        "text",
+        "audioData",
+        "audioDuration",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user account documents containing email PII, accessible only to the owning user or studio admin."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Read-only admin allowlist documents managed out-of-band."
+    },
+    "/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/VideoProject" },
+      "description": "AI video production requests owned by a client and managed by the studio creator."
+    },
+    "/projects/{projectId}/editRequests/{editId}": {
+      "schema": { "$ref": "#/entities/EditRequest" },
+      "description": "Timecoded edit revision requests scoped to a parent video project."
+    },
+    "/projects/{projectId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Real-time text and voice chat messages scoped to a parent video project."
+    },
+    "/directThreads/{clientId}": {
+      "schema": { "$ref": "#/entities/DirectThread" },
+      "description": "Private 1-on-1 direct chat thread between a signed-in client and the studio creator."
+    },
+    "/directThreads/{clientId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/DirectMessage" },
+      "description": "Real-time text and voice messages inside a client's private 1-on-1 direct chat with the studio creator."
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Framecraft Studio",
+  "description": "AI video production portal where clients request custom AI videos, submit timecoded edit revisions, and chat directly with the studio creator.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

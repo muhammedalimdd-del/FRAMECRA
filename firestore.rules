@@ -1,0 +1,455 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitive Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    // Sole Studio Owner check: strictly muhammedalimdd@gmail.com (verified email only, zero-read safe for list queries)
+    function isAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'muhammedalimdd@gmail.com';
+    }
+
+    // --- Validation Blueprints (Verbatim sync with firebase-blueprint.json) ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.photoURL is string && data.photoURL.size() <= 500
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll([
+          'clientId', 'clientName', 'clientPhotoURL', 'title', 'videoType',
+          'aspectRatio', 'duration', 'visualStyle', 'brief', 'referenceUrl',
+          'targetDate', 'status', 'previewUrl', 'previewNote', 'version',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'clientId', 'clientName', 'clientPhotoURL', 'title', 'videoType',
+          'aspectRatio', 'duration', 'visualStyle', 'brief', 'referenceUrl',
+          'targetDate', 'status', 'previewUrl', 'previewNote', 'version',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.clientId)
+        && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 100
+        && data.clientPhotoURL is string && data.clientPhotoURL.size() <= 500
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 120
+        && data.videoType in ['commercial', 'product', 'social', 'explainer', 'music', 'cinematic']
+        && data.aspectRatio in ['16:9', '9:16', '1:1', '21:9']
+        && data.duration in ['15s', '30s', '60s', '90s+']
+        && data.visualStyle is string && data.visualStyle.size() <= 300
+        && data.brief is string && data.brief.size() >= 10 && data.brief.size() <= 3000
+        && data.referenceUrl is string && data.referenceUrl.size() <= 500
+        && data.targetDate is string && data.targetDate.size() <= 32
+        && data.status in ['submitted', 'in_production', 'in_review', 'changes_requested', 'completed']
+        && data.previewUrl is string && data.previewUrl.size() <= 500
+        && data.previewNote is string && data.previewNote.size() <= 500
+        && data.version is int && data.version >= 0 && data.version <= 99
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEditRequest(data, projectId) {
+      return data.keys().hasAll([
+          'projectId', 'clientId', 'authorId', 'authorName', 'timecode',
+          'category', 'priority', 'instructions', 'status', 'resolutionNote',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'projectId', 'clientId', 'authorId', 'authorName', 'timecode',
+          'category', 'priority', 'instructions', 'status', 'resolutionNote',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.projectId) && data.projectId == projectId
+        && isValidId(data.clientId)
+        && isValidId(data.authorId)
+        && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 100
+        && data.timecode is string && data.timecode.size() <= 32
+        && data.category in ['visual', 'pacing', 'color', 'audio', 'text', 'other']
+        && data.priority in ['standard', 'high']
+        && data.instructions is string && data.instructions.size() >= 5 && data.instructions.size() <= 2000
+        && data.status in ['open', 'in_progress', 'resolved']
+        && data.resolutionNote is string && data.resolutionNote.size() <= 1000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVoiceOrTextContent(messageType, text, audioData, audioDuration) {
+      return messageType in ['text', 'voice']
+        && text is string && text.size() <= 2000
+        && audioData is string && audioData.size() <= 350000
+        && audioDuration is int && audioDuration >= 0 && audioDuration <= 65
+        && (
+          (messageType == 'text' && text.size() >= 1 && audioData == '' && audioDuration == 0)
+          ||
+          (messageType == 'voice' && audioData.size() >= 32 && audioData.matches('^data:audio/.*') && audioDuration >= 1)
+        );
+    }
+
+    function isValidChatMessage(data, projectId) {
+      return data.keys().hasAll([
+          'projectId', 'clientId', 'senderId', 'senderName', 'senderPhotoURL',
+          'senderRole', 'messageType', 'text', 'audioData', 'audioDuration',
+          'timecodeRef', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'projectId', 'clientId', 'senderId', 'senderName', 'senderPhotoURL',
+          'senderRole', 'messageType', 'text', 'audioData', 'audioDuration',
+          'timecodeRef', 'createdAt'
+        ])
+        && isValidId(data.projectId) && data.projectId == projectId
+        && isValidId(data.clientId)
+        && isValidId(data.senderId)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 100
+        && data.senderPhotoURL is string && data.senderPhotoURL.size() <= 500
+        && data.senderRole in ['client', 'creator']
+        && isValidVoiceOrTextContent(data.messageType, data.text, data.audioData, data.audioDuration)
+        && data.timecodeRef is string && data.timecodeRef.size() <= 32
+        && data.createdAt is timestamp;
+    }
+
+    function isValidDirectThread(data, clientId) {
+      return data.keys().hasAll([
+          'clientId', 'clientName', 'clientPhotoURL', 'lastMessagePreview',
+          'lastMessageType', 'lastSenderRole', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'clientId', 'clientName', 'clientPhotoURL', 'lastMessagePreview',
+          'lastMessageType', 'lastSenderRole', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.clientId) && data.clientId == clientId
+        && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 100
+        && data.clientPhotoURL is string && data.clientPhotoURL.size() <= 500
+        && data.lastMessagePreview is string && data.lastMessagePreview.size() <= 200
+        && data.lastMessageType in ['text', 'voice']
+        && data.lastSenderRole in ['client', 'creator']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDirectMessage(data, clientId) {
+      return data.keys().hasAll([
+          'clientId', 'senderId', 'senderName', 'senderPhotoURL',
+          'senderRole', 'messageType', 'text', 'audioData', 'audioDuration',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'clientId', 'senderId', 'senderName', 'senderPhotoURL',
+          'senderRole', 'messageType', 'text', 'audioData', 'audioDuration',
+          'createdAt'
+        ])
+        && isValidId(data.clientId) && data.clientId == clientId
+        && isValidId(data.senderId)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 100
+        && data.senderPhotoURL is string && data.senderPhotoURL.size() <= 500
+        && data.senderRole in ['client', 'creator']
+        && isValidVoiceOrTextContent(data.messageType, data.text, data.audioData, data.audioDuration)
+        && data.createdAt is timestamp;
+    }
+
+    // Master Gate helper for project subcollections
+    function parentProject(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId));
+    }
+
+    function canAccessParentProject(projectId) {
+      return exists(/databases/$(database)/documents/projects/$(projectId))
+        && (parentProject(projectId).data.clientId == request.auth.uid || isAdmin());
+    }
+
+    // Master Gate helper for direct chat subcollections
+    function canAccessDirectThread(clientId) {
+      return exists(/databases/$(database)/documents/directThreads/$(clientId))
+        && (request.auth.uid == clientId || isAdmin());
+    }
+
+    // --- Collection: /users/{userId} (PII Isolated) ---
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && isOwner(userId)
+        && incoming().email == request.auth.token.email
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && isOwner(userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().email == request.auth.token.email
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // --- Collection: /admins/{adminId} (Disabled: strictly only muhammedalimdd@gmail.com has admin access) ---
+    match /admins/{adminId} {
+      allow read, write: if false;
+    }
+
+    // --- Collection: /projects/{projectId} (Private to submitting client & muhammedalimdd@gmail.com only) ---
+    match /projects/{projectId} {
+      allow get: if isVerifiedUser()
+        && isValidId(projectId)
+        && (existing().clientId == request.auth.uid || isAdmin());
+
+      allow list: if isVerifiedUser()
+        && (resource.data.clientId == request.auth.uid || isAdmin());
+
+      allow create: if isVerifiedUser()
+        && isValidId(projectId)
+        && isValidProject(incoming())
+        && incoming().clientId == request.auth.uid
+        && incoming().status == 'submitted'
+        && incoming().previewUrl == ''
+        && incoming().previewNote == ''
+        && incoming().version == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(projectId)
+        && isValidProject(incoming())
+        && incoming().clientId == existing().clientId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Tier 1 Action: muhammedalimdd@gmail.com updates production status, preview link, notes, or version
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'previewUrl', 'previewNote', 'version', 'updatedAt'])
+          )
+          ||
+          // Tier 2 Action A: Submitting client edits creative brief while request is still submitted
+          (
+            existing().clientId == request.auth.uid
+            && existing().status == 'submitted'
+            && incoming().status == 'submitted'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'videoType', 'aspectRatio', 'duration',
+              'visualStyle', 'brief', 'referenceUrl', 'targetDate', 'updatedAt'
+            ])
+          )
+          ||
+          // Tier 2 Action B: Submitting client approves cut or requests changes while in_review
+          (
+            existing().clientId == request.auth.uid
+            && existing().status == 'in_review'
+            && (incoming().status == 'changes_requested' || incoming().status == 'completed')
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(projectId)
+        && (
+          isAdmin()
+          || (existing().clientId == request.auth.uid && existing().status == 'submitted')
+        );
+
+      // --- Subcollection: /projects/{projectId}/editRequests/{editId} ---
+      match /editRequests/{editId} {
+        allow get: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(editId)
+          && canAccessParentProject(projectId);
+
+        allow list: if isVerifiedUser()
+          && (resource.data.clientId == request.auth.uid || isAdmin());
+
+        allow create: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(editId)
+          && isValidEditRequest(incoming(), projectId)
+          && incoming().authorId == request.auth.uid
+          && incoming().status == 'open'
+          && incoming().resolutionNote == ''
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/projects/$(projectId))
+          && parentProject(projectId).data.clientId == incoming().clientId
+          && (parentProject(projectId).data.clientId == request.auth.uid || isAdmin())
+          && (parentProject(projectId).data.status != 'completed' || isAdmin());
+
+        allow update: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(editId)
+          && isValidEditRequest(incoming(), projectId)
+          && incoming().projectId == existing().projectId
+          && incoming().clientId == existing().clientId
+          && incoming().authorId == existing().authorId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && canAccessParentProject(projectId)
+          && (
+            // Tier 1 Action: muhammedalimdd@gmail.com updates edit status & resolution note
+            (
+              isAdmin()
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'resolutionNote', 'updatedAt'])
+            )
+            ||
+            // Tier 2 Action: Author refines their open edit request
+            (
+              existing().authorId == request.auth.uid
+              && existing().status == 'open'
+              && incoming().status == 'open'
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'timecode', 'category', 'priority', 'instructions', 'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(editId)
+          && canAccessParentProject(projectId)
+          && (
+            isAdmin()
+            || (existing().authorId == request.auth.uid && existing().status == 'open')
+          );
+      }
+
+      // --- Subcollection: /projects/{projectId}/messages/{messageId} ---
+      match /messages/{messageId} {
+        allow get: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(messageId)
+          && canAccessParentProject(projectId);
+
+        allow list: if isVerifiedUser()
+          && (resource.data.clientId == request.auth.uid || isAdmin());
+
+        allow create: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming(), projectId)
+          && incoming().senderId == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/projects/$(projectId))
+          && parentProject(projectId).data.clientId == incoming().clientId
+          && (parentProject(projectId).data.clientId == request.auth.uid || isAdmin())
+          && (incoming().senderRole == 'client' || isAdmin());
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser()
+          && isValidId(projectId)
+          && isValidId(messageId)
+          && isAdmin();
+      }
+    }
+
+    // --- Collection: /directThreads/{clientId} (1-on-1 Private Chat with muhammedalimdd@gmail.com only) ---
+    match /directThreads/{clientId} {
+      allow get: if isVerifiedUser()
+        && isValidId(clientId)
+        && (request.auth.uid == clientId || isAdmin());
+
+      allow list: if isVerifiedUser()
+        && (resource.data.clientId == request.auth.uid || isAdmin());
+
+      allow create: if isVerifiedUser()
+        && isValidId(clientId)
+        && isValidDirectThread(incoming(), clientId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (request.auth.uid == clientId && incoming().lastSenderRole == 'client')
+          || isAdmin()
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(clientId)
+        && isValidDirectThread(incoming(), clientId)
+        && incoming().clientId == existing().clientId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Tier 1 Action: muhammedalimdd@gmail.com replies and updates thread preview
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'lastMessagePreview', 'lastMessageType', 'lastSenderRole', 'updatedAt'
+            ])
+          )
+          ||
+          // Tier 2 Action: Client sends a message and updates their own thread preview
+          (
+            request.auth.uid == clientId
+            && incoming().lastSenderRole == 'client'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'clientName', 'clientPhotoURL', 'lastMessagePreview', 'lastMessageType', 'lastSenderRole', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(clientId)
+        && isAdmin();
+
+      // --- Subcollection: /directThreads/{clientId}/messages/{messageId} ---
+      match /messages/{messageId} {
+        allow get: if isVerifiedUser()
+          && isValidId(clientId)
+          && isValidId(messageId)
+          && canAccessDirectThread(clientId);
+
+        allow list: if isVerifiedUser()
+          && (resource.data.clientId == request.auth.uid || isAdmin());
+
+        allow create: if isVerifiedUser()
+          && isValidId(clientId)
+          && isValidId(messageId)
+          && isValidDirectMessage(incoming(), clientId)
+          && incoming().senderId == request.auth.uid
+          && incoming().createdAt == request.time
+          && (request.auth.uid == clientId || isAdmin())
+          && (incoming().senderRole == 'client' || isAdmin())
+          && existsAfter(/databases/$(database)/documents/directThreads/$(clientId));
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser()
+          && isValidId(clientId)
+          && isValidId(messageId)
+          && isAdmin();
+      }
+    }
+  }
+}
