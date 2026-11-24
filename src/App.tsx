@@ -16,7 +16,13 @@ import { GmailConfirmModal } from './components/GmailConfirmModal';
 import { LandingPage } from './components/LandingPage';
 import { ProjectDetail } from './components/ProjectDetail';
 import { ProjectFormModal } from './components/ProjectFormModal';
-import { auth, signInWithGoogle, signOutUser } from './firebase';
+import {
+  auth,
+  parseFirebaseAuthError,
+  signInWithGoogle,
+  signOutUser,
+  type AuthErrorInfo,
+} from './firebase';
 import {
   createProject,
   isStudioOwnerUser,
@@ -82,7 +88,7 @@ function StudioWorkspace() {
   const [authReady, setAuthReady] = useState(false);
   const [viewingCover, setViewingCover] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<AuthErrorInfo | null>(null);
 
   const isAdmin = useMemo(() => isStudioOwnerUser(user), [user]);
 
@@ -234,13 +240,9 @@ function StudioWorkspace() {
       setSelectedProjectId(null);
       setViewingCover(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unable to sign in with Google.';
-      if (msg.includes('popup-blocked')) {
-        setAuthError('Your browser blocked the Google sign-in popup. Please allow popups and try again.');
-      } else if (msg.includes('unauthorized-domain')) {
-        setAuthError('This preview domain is not authorized for Google Sign-In yet. Please open the app from its shared URL.');
-      } else if (!msg.includes('popup-closed-by-user') && !msg.includes('cancelled-popup-request')) {
-        setAuthError(msg);
+      const parsed = parseFirebaseAuthError(err, 'Unable to sign in with Google.');
+      if (parsed.kind !== 'cancelled') {
+        setAuthError(parsed);
       }
     } finally {
       setSigningIn(false);

@@ -4,8 +4,11 @@ import {
   clearGmailAccessToken,
   confirmWithGoogleForSubmission,
   getGmailAccessToken,
+  parseFirebaseAuthError,
+  type AuthErrorInfo,
 } from '../firebase';
 import { sendEmailViaGmail, type GmailEmailDraft } from '../services/gmailService';
+import { AuthErrorAlert } from './AuthErrorAlert';
 
 interface GmailConfirmModalProps {
   draft: GmailEmailDraft | null;
@@ -59,7 +62,7 @@ export function GmailConfirmModal({
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AuthErrorInfo | null>(null);
 
   useEffect(() => {
     if (draft) {
@@ -98,13 +101,17 @@ export function GmailConfirmModal({
           if (status === 401 || status === 403) {
             clearGmailAccessToken();
             setHasToken(false);
-            setError(
-              'Your Google account is confirmed, and your request is saved. Use "Open in Gmail" below to send the email copy.'
-            );
+            setError({
+              kind: 'generic',
+              message:
+                'Your Google account is confirmed, and your request is saved. Use "Open in Gmail" below to send the email copy.',
+            });
           } else {
-            setError(
-              sendErr instanceof Error ? sendErr.message : 'Unable to send email via Gmail API.'
-            );
+            setError({
+              kind: 'generic',
+              message:
+                sendErr instanceof Error ? sendErr.message : 'Unable to send email via Gmail API.',
+            });
           }
         } finally {
           setSending(false);
@@ -114,15 +121,12 @@ export function GmailConfirmModal({
         setAuthorizing(false);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Google Sign-In could not be completed.';
-      if (!msg.includes('popup-closed-by-user') && !msg.includes('cancelled-popup-request')) {
-        if (msg.includes('popup-blocked')) {
-          setError('Your browser blocked the Google sign-in popup. Please allow popups and try again.');
-        } else {
-          setError(
-            'Could not complete Google Sign-In in this window. Your request is already saved—you can also click "Open in Gmail" below.'
-          );
-        }
+      const parsed = parseFirebaseAuthError(
+        err,
+        'Could not complete Google Sign-In in this window. Your request is already saved—you can also click "Open in Gmail" below.'
+      );
+      if (parsed.kind !== 'cancelled') {
+        setError(parsed);
       }
       setAuthorizing(false);
     }
@@ -147,11 +151,16 @@ export function GmailConfirmModal({
       if (status === 401 || status === 403) {
         clearGmailAccessToken();
         setHasToken(false);
-        setError(
-          'Your Gmail session expired. Sign in with Google below or click "Open in Gmail" to send.'
-        );
+        setError({
+          kind: 'generic',
+          message:
+            'Your Gmail session expired. Sign in with Google below or click "Open in Gmail" to send.',
+        });
       } else {
-        setError(err instanceof Error ? err.message : 'Failed to send email via Gmail.');
+        setError({
+          kind: 'generic',
+          message: err instanceof Error ? err.message : 'Failed to send email via Gmail.',
+        });
       }
     } finally {
       setSending(false);
@@ -240,12 +249,12 @@ export function GmailConfirmModal({
               </div>
 
               {error && (
-                <div
-                  role="alert"
-                  className="px-4 py-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg"
-                >
-                  {error}
-                </div>
+                <AuthErrorAlert
+                  error={error}
+                  theme="light"
+                  onRetry={() => void handleGoogleSignInAndSend()}
+                  retrying={authorizing}
+                />
               )}
 
               <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg divide-y divide-slate-200 text-xs">

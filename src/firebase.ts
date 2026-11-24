@@ -64,6 +64,91 @@ export async function authorizeGmailAccess(): Promise<string> {
   return cachedAccessToken;
 }
 
+export type AuthErrorKind =
+  | 'unauthorized-domain'
+  | 'popup-blocked'
+  | 'operation-not-allowed'
+  | 'network'
+  | 'cancelled'
+  | 'generic';
+
+export interface AuthErrorInfo {
+  kind: AuthErrorKind;
+  message: string;
+  hostname?: string;
+  firebaseSettingsUrl?: string;
+}
+
+export function getFirebaseAuthSettingsUrl(): string {
+  return `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`;
+}
+
+export function parseFirebaseAuthError(
+  error: unknown,
+  fallbackMessage = 'Unable to sign in with Google. Please try again.'
+): AuthErrorInfo {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+  const rawMessage = error instanceof Error ? error.message : String(error ?? '');
+  const combined = `${code} ${rawMessage}`.toLowerCase();
+
+  if (
+    combined.includes('popup-closed-by-user') ||
+    combined.includes('cancelled-popup-request')
+  ) {
+    return {
+      kind: 'cancelled',
+      message: '',
+    };
+  }
+
+  if (combined.includes('unauthorized-domain')) {
+    const hostname =
+      typeof window !== 'undefined' && window.location?.hostname
+        ? window.location.hostname
+        : '';
+    return {
+      kind: 'unauthorized-domain',
+      message:
+        'Google Sign-In is blocked on this host until the domain is added to Firebase Authentication Authorized Domains.',
+      hostname,
+      firebaseSettingsUrl: getFirebaseAuthSettingsUrl(),
+    };
+  }
+
+  if (combined.includes('popup-blocked')) {
+    return {
+      kind: 'popup-blocked',
+      message:
+        'Your browser blocked the Google sign-in popup. Please allow popups for this site and try again.',
+    };
+  }
+
+  if (combined.includes('operation-not-allowed')) {
+    return {
+      kind: 'operation-not-allowed',
+      message:
+        'Google Sign-In is not enabled in Firebase Authentication for this project yet.',
+      firebaseSettingsUrl: getFirebaseAuthSettingsUrl(),
+    };
+  }
+
+  if (combined.includes('network-request-failed')) {
+    return {
+      kind: 'network',
+      message:
+        'Network connection failed while contacting Google Sign-In. Check your connection and try again.',
+    };
+  }
+
+  return {
+    kind: 'generic',
+    message: rawMessage || fallbackMessage,
+  };
+}
+
 export async function confirmWithGoogleForSubmission(): Promise<{
   user: User;
   accessToken: string | null;
@@ -80,9 +165,15 @@ export async function confirmWithGoogleForSubmission(): Promise<{
       gmailScopeGranted: Boolean(token),
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // If user explicitly closed the popup, do not open a second popup
-    if (msg.includes('popup-closed-by-user') || msg.includes('cancelled-popup-request')) {
+    const parsed = parseFirebaseAuthError(err);
+    // Short-circuit errors that a second popup cannot resolve (user close, domain mismatch, popup block, network)
+    if (
+      parsed.kind === 'cancelled' ||
+      parsed.kind === 'unauthorized-domain' ||
+      parsed.kind === 'popup-blocked' ||
+      parsed.kind === 'operation-not-allowed' ||
+      parsed.kind === 'network'
+    ) {
       throw err;
     }
     // Fallback to standard Google Sign-In (no restricted scope) so any Google account can confirm

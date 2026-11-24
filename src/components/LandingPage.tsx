@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { User } from 'firebase/auth';
 import { ArrowDown, ArrowRight, Film, MessageSquare, SlidersHorizontal } from 'lucide-react';
+import type { AuthErrorInfo } from '../firebase';
+import { AuthErrorAlert } from './AuthErrorAlert';
 
 interface LandingPageProps {
   user: User | null;
@@ -9,7 +11,7 @@ interface LandingPageProps {
   onEnterStudio: () => void;
   onSignOut: () => Promise<void>;
   signingIn: boolean;
-  authError: string | null;
+  authError: AuthErrorInfo | null;
 }
 
 const COVER_BACKDROP = '/src/assets/images/studio_cover_backdrop_1795100960354.jpg';
@@ -264,12 +266,13 @@ export function LandingPage({
                 )}
 
                 {authError && (
-                  <p
-                    role="alert"
-                    className="mt-4 text-xs text-red-200 bg-red-950/70 border border-red-500/40 rounded-lg px-3.5 py-2.5"
-                  >
-                    {authError}
-                  </p>
+                  <AuthErrorAlert
+                    error={authError}
+                    theme="dark"
+                    onRetry={() => void onSignIn()}
+                    retrying={signingIn}
+                    className="mt-4"
+                  />
                 )}
               </div>
             </div>
