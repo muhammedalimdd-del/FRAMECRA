@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ExternalLink, Mail, Send, X } from 'lucide-react';
 import {
+  authorizeGmailAccess,
   clearGmailAccessToken,
   confirmWithGoogleForSubmission,
   getGmailAccessToken,
@@ -57,20 +58,18 @@ export function GmailConfirmModal({
   onClose,
   onSent,
 }: GmailConfirmModalProps) {
-  const [hasToken, setHasToken] = useState<boolean>(() => Boolean(getGmailAccessToken()));
   const [authorizing, setAuthorizing] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [sendingViaApi, setSendingViaApi] = useState(false);
   const [sent, setSent] = useState(false);
   const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
   const [error, setError] = useState<AuthErrorInfo | null>(null);
 
   useEffect(() => {
     if (draft) {
-      setHasToken(Boolean(getGmailAccessToken()));
       setSent(false);
       setConfirmedEmail(null);
       setError(null);
-      setSending(false);
+      setSendingViaApi(false);
       setAuthorizing(false);
     }
   }, [draft]);
@@ -79,19 +78,20 @@ export function GmailConfirmModal({
 
   const gmailComposeUrl = buildGmailComposeUrl(draft);
 
-  async function handleGoogleSignInAndSend() {
+  // Step 2 Primary Action: Standard Google Sign-In (works for 100% of Google accounts without OAuth scope blocks)
+  async function handleConfirmWithGoogle() {
     if (!draft) return;
     setError(null);
     setAuthorizing(true);
 
     try {
-      const { user, accessToken, gmailScopeGranted } = await confirmWithGoogleForSubmission();
+      const { user, accessToken } = await confirmWithGoogleForSubmission();
       setConfirmedEmail(user.email || userEmail || 'your Google account');
+      setAuthorizing(false);
 
-      if (gmailScopeGranted && accessToken) {
-        setHasToken(true);
-        setAuthorizing(false);
-        setSending(true);
+      // If this session already holds an active Gmail token, also deliver automatically
+      if (accessToken) {
+        setSendingViaApi(true);
         try {
           await sendEmailViaGmail(accessToken, draft);
           setSent(true);
@@ -100,25 +100,11 @@ export function GmailConfirmModal({
           const status = (sendErr as { status?: number })?.status;
           if (status === 401 || status === 403) {
             clearGmailAccessToken();
-            setHasToken(false);
-            setError({
-              kind: 'generic',
-              message:
-                'Your Google account is confirmed, and your request is saved. Use "Open in Gmail" below to send the email copy.',
-            });
-          } else {
-            setError({
-              kind: 'generic',
-              message:
-                sendErr instanceof Error ? sendErr.message : 'Unable to send email via Gmail API.',
-            });
           }
+          // Request is already saved & Google account is confirmed; Open in Gmail stays ready
         } finally {
-          setSending(false);
+          setSendingViaApi(false);
         }
-      } else {
-        setHasToken(false);
-        setAuthorizing(false);
       }
     } catch (err) {
       const parsed = parseFirebaseAuthError(
@@ -132,17 +118,17 @@ export function GmailConfirmModal({
     }
   }
 
-  async function handleSendWithExistingToken() {
+  // Optional Direct Gmail API Send (for authorized studio/test accounts)
+  async function handleDirectGmailApiSend() {
     if (!draft) return;
-    const token = getGmailAccessToken();
-    if (!token) {
-      await handleGoogleSignInAndSend();
-      return;
-    }
-
     setError(null);
-    setSending(true);
+    setSendingViaApi(true);
+
     try {
+      let token = getGmailAccessToken();
+      if (!token) {
+        token = await authorizeGmailAccess();
+      }
       await sendEmailViaGmail(token, draft);
       setSent(true);
       onSent?.();
@@ -150,20 +136,22 @@ export function GmailConfirmModal({
       const status = (err as { status?: number })?.status;
       if (status === 401 || status === 403) {
         clearGmailAccessToken();
-        setHasToken(false);
         setError({
           kind: 'generic',
           message:
-            'Your Gmail session expired. Sign in with Google below or click "Open in Gmail" to send.',
+            'Direct Gmail API sending is not enabled for this Google account. Use "Open in Gmail" below to send the pre-filled email.',
         });
       } else {
-        setError({
-          kind: 'generic',
-          message: err instanceof Error ? err.message : 'Failed to send email via Gmail.',
-        });
+        const parsed = parseFirebaseAuthError(
+          err,
+          'Direct Gmail API sending was declined. Your request is already saved—use "Open in Gmail" below.'
+        );
+        if (parsed.kind !== 'cancelled') {
+          setError(parsed);
+        }
       }
     } finally {
-      setSending(false);
+      setSendingViaApi(false);
     }
   }
 
@@ -185,12 +173,16 @@ export function GmailConfirmModal({
               >
                 {sent
                   ? 'Confirmed & Sent to Studio Gmail'
-                  : `Final Step — Confirm ${draft.contextLabel} with Google`}
+                  : confirmedEmail
+                    ? `${draft.contextLabel} Confirmed with Google`
+                    : `Final Step — Confirm ${draft.contextLabel} with Google`}
               </h2>
               <p className="text-xs text-slate-500">
                 {sent
                   ? `Delivered to ${draft.to} from your Google account.`
-                  : `Sign in with your Google account to confirm and send a copy directly to ${draft.to}.`}
+                  : confirmedEmail
+                    ? `Verified as ${confirmedEmail}. Optionally open Gmail to send an email copy.`
+                    : `Sign in with any Google account to confirm your submission for ${draft.to}.`}
               </p>
             </div>
           </div>
@@ -233,16 +225,17 @@ export function GmailConfirmModal({
                 <span>
                   {confirmedEmail ? (
                     <>
-                      Google account confirmed (<strong className="font-mono">{confirmedEmail}</strong>).
-                      Your request is delivered privately to{' '}
-                      <strong className="font-mono">{draft.to}</strong> — click{' '}
-                      <strong>Open in Gmail</strong> below to also email a copy.
+                      Google account confirmed (
+                      <strong className="font-mono">{confirmedEmail}</strong>). Your request is
+                      saved privately for <strong className="font-mono">{draft.to}</strong> —
+                      click <strong>Open in Gmail</strong> below to also send an email copy.
                     </>
                   ) : (
                     <>
                       Your {draft.contextLabel.toLowerCase()} is saved privately for{' '}
-                      <strong className="font-mono font-medium">{draft.to}</strong>. Use Google
-                      Sign-In below to confirm and send an email copy.
+                      <strong className="font-mono font-medium">{draft.to}</strong>. Click{' '}
+                      <strong>Sign in with Google &amp; Confirm</strong> below to verify your
+                      Google account.
                     </>
                   )}
                 </span>
@@ -252,7 +245,7 @@ export function GmailConfirmModal({
                 <AuthErrorAlert
                   error={error}
                   theme="light"
-                  onRetry={() => void handleGoogleSignInAndSend()}
+                  onRetry={() => void handleConfirmWithGoogle()}
                   retrying={authorizing}
                 />
               )}
@@ -276,19 +269,33 @@ export function GmailConfirmModal({
 
               {/* Second Google Sign-In Step at the End of Submitting */}
               <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
-                <a
-                  href={gmailComposeUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
-                    confirmedEmail
-                      ? 'text-white bg-slate-900 hover:bg-slate-800'
-                      : 'text-slate-700 bg-white border border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Open in Gmail</span>
-                </a>
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={gmailComposeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+                      confirmedEmail
+                        ? 'text-white bg-slate-900 hover:bg-slate-800'
+                        : 'text-slate-700 bg-white border border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open in Gmail</span>
+                  </a>
+
+                  {confirmedEmail && (
+                    <button
+                      type="button"
+                      disabled={sendingViaApi || authorizing}
+                      onClick={() => void handleDirectGmailApiSend()}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{sendingViaApi ? 'Sending...' : 'Send via Gmail API'}</span>
+                    </button>
+                  )}
+                </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
                   <button
@@ -299,35 +306,23 @@ export function GmailConfirmModal({
                     Done
                   </button>
 
-                  {hasToken ? (
-                    <button
-                      type="button"
-                      disabled={sending || authorizing}
-                      onClick={() => void handleSendWithExistingToken()}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-60 transition-colors whitespace-nowrap cursor-pointer"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>{sending ? 'Sending via Gmail...' : 'Confirm & Send Email'}</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={sending || authorizing}
-                      onClick={() => void handleGoogleSignInAndSend()}
-                      className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-900 bg-white border border-slate-900 rounded-lg hover:bg-slate-50 disabled:opacity-60 transition-colors whitespace-nowrap cursor-pointer"
-                    >
-                      <GoogleIcon />
-                      <span>
-                        {authorizing
-                          ? 'Signing in with Google...'
-                          : sending
-                            ? 'Sending email...'
-                            : confirmedEmail
-                              ? 'Switch Google Account'
-                              : 'Sign in with Google & Send'}
-                      </span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={sendingViaApi || authorizing}
+                    onClick={() => void handleConfirmWithGoogle()}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-900 bg-white border border-slate-900 rounded-lg hover:bg-slate-50 disabled:opacity-60 transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <GoogleIcon />
+                    <span>
+                      {authorizing
+                        ? 'Signing in with Google...'
+                        : sendingViaApi
+                          ? 'Sending email...'
+                          : confirmedEmail
+                            ? 'Switch Google Account'
+                            : 'Sign in with Google & Confirm'}
+                    </span>
+                  </button>
                 </div>
               </div>
             </>

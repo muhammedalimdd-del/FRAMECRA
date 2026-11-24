@@ -1,9 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User,
 } from 'firebase/auth';
@@ -12,11 +14,32 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 export const SCOPES = ['https://www.googleapis.com/auth/gmail.send'] as const;
 
-const FIRESTORE_DATABASE_ID =
-  (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId ||
-  'ai-studio-78d01849-0839-46bb-960e-ac864472028e';
+const viteEnv = (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
+const hasCustomFirebaseEnv = Boolean(
+  viteEnv.VITE_FIREBASE_API_KEY && viteEnv.VITE_FIREBASE_PROJECT_ID
+);
 
-const app = initializeApp(firebaseConfig);
+const resolvedFirebaseConfig = hasCustomFirebaseEnv
+  ? {
+      apiKey: viteEnv.VITE_FIREBASE_API_KEY!,
+      authDomain:
+        viteEnv.VITE_FIREBASE_AUTH_DOMAIN ||
+        `${viteEnv.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
+      projectId: viteEnv.VITE_FIREBASE_PROJECT_ID!,
+      storageBucket:
+        viteEnv.VITE_FIREBASE_STORAGE_BUCKET ||
+        `${viteEnv.VITE_FIREBASE_PROJECT_ID}.firebasestorage.app`,
+      messagingSenderId: viteEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+      appId: viteEnv.VITE_FIREBASE_APP_ID || '',
+    }
+  : firebaseConfig;
+
+const FIRESTORE_DATABASE_ID = hasCustomFirebaseEnv
+  ? viteEnv.VITE_FIREBASE_DATABASE_ID || '(default)'
+  : (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId ||
+    'ai-studio-78d01849-0839-46bb-960e-ac864472028e';
+
+const app = initializeApp(resolvedFirebaseConfig);
 export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
 export const auth = getAuth(app);
 
@@ -24,7 +47,7 @@ export const auth = getAuth(app);
 export const basicGoogleProvider = new GoogleAuthProvider();
 basicGoogleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// Incremental Gmail provider requested only when a user explicitly chooses to send via Gmail API
+// Optional Gmail provider requested only when a user explicitly chooses direct Gmail API sending
 export const googleProvider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => googleProvider.addScope(scope));
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -42,6 +65,15 @@ export async function signInWithGoogle(): Promise<User> {
   const result = await signInWithPopup(auth, basicGoogleProvider);
   cachedAccessToken = null;
   return result.user;
+}
+
+export async function signInWithGoogleRedirect(): Promise<void> {
+  await signInWithRedirect(auth, basicGoogleProvider);
+}
+
+export async function completeGoogleRedirectSignIn(): Promise<User | null> {
+  const result = await getRedirectResult(auth);
+  return result?.user ?? null;
 }
 
 export async function signInWithGoogleAndGmail(): Promise<{
@@ -80,7 +112,7 @@ export interface AuthErrorInfo {
 }
 
 export function getFirebaseAuthSettingsUrl(): string {
-  return `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`;
+  return `https://console.firebase.google.com/project/${resolvedFirebaseConfig.projectId}/authentication/settings`;
 }
 
 export function parseFirebaseAuthError(
@@ -112,7 +144,7 @@ export function parseFirebaseAuthError(
     return {
       kind: 'unauthorized-domain',
       message:
-        'Google Sign-In is blocked on this host until the domain is added to Firebase Authentication Authorized Domains.',
+        'Google Sign-In is temporarily unavailable on this domain until the site owner authorizes it.',
       hostname,
       firebaseSettingsUrl: getFirebaseAuthSettingsUrl(),
     };
@@ -122,7 +154,7 @@ export function parseFirebaseAuthError(
     return {
       kind: 'popup-blocked',
       message:
-        'Your browser blocked the Google sign-in popup. Please allow popups for this site and try again.',
+        'Your browser blocked the Google sign-in popup. Allow popups or continue with redirect sign-in below.',
     };
   }
 
@@ -149,42 +181,19 @@ export function parseFirebaseAuthError(
   };
 }
 
+// Step 2 submission confirmation uses standard Google Sign-In (no restricted scopes)
+// so every Google account can confirm cleanly without hitting Google's unverified-app OAuth block.
 export async function confirmWithGoogleForSubmission(): Promise<{
   user: User;
   accessToken: string | null;
   gmailScopeGranted: boolean;
 }> {
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const token = credential?.accessToken ?? null;
-    cachedAccessToken = token;
-    return {
-      user: result.user,
-      accessToken: token,
-      gmailScopeGranted: Boolean(token),
-    };
-  } catch (err) {
-    const parsed = parseFirebaseAuthError(err);
-    // Short-circuit errors that a second popup cannot resolve (user close, domain mismatch, popup block, network)
-    if (
-      parsed.kind === 'cancelled' ||
-      parsed.kind === 'unauthorized-domain' ||
-      parsed.kind === 'popup-blocked' ||
-      parsed.kind === 'operation-not-allowed' ||
-      parsed.kind === 'network'
-    ) {
-      throw err;
-    }
-    // Fallback to standard Google Sign-In (no restricted scope) so any Google account can confirm
-    const fallbackResult = await signInWithPopup(auth, basicGoogleProvider);
-    cachedAccessToken = null;
-    return {
-      user: fallbackResult.user,
-      accessToken: null,
-      gmailScopeGranted: false,
-    };
-  }
+  const result = await signInWithPopup(auth, basicGoogleProvider);
+  return {
+    user: result.user,
+    accessToken: cachedAccessToken,
+    gmailScopeGranted: Boolean(cachedAccessToken),
+  };
 }
 
 export function getGmailAccessToken(): string | null {
@@ -201,7 +210,7 @@ export async function signOutUser(): Promise<void> {
 }
 
 export const FIREBASE_CONFIG_META = {
-  projectId: firebaseConfig.projectId,
+  projectId: resolvedFirebaseConfig.projectId,
   firestoreDatabaseId: FIRESTORE_DATABASE_ID,
 };
 

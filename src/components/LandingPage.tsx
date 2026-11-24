@@ -8,6 +8,7 @@ interface LandingPageProps {
   user: User | null;
   isAdmin: boolean;
   onSignIn: () => Promise<void>;
+  onRedirectSignIn: () => Promise<void>;
   onEnterStudio: () => void;
   onSignOut: () => Promise<void>;
   signingIn: boolean;
@@ -82,6 +83,7 @@ export function LandingPage({
   user,
   isAdmin,
   onSignIn,
+  onRedirectSignIn,
   onEnterStudio,
   onSignOut,
   signingIn,
@@ -270,6 +272,7 @@ export function LandingPage({
                     error={authError}
                     theme="dark"
                     onRetry={() => void onSignIn()}
+                    onRedirectSignIn={() => void onRedirectSignIn()}
                     retrying={signingIn}
                     className="mt-4"
                   />

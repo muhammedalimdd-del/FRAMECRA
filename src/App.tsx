@@ -18,8 +18,10 @@ import { ProjectDetail } from './components/ProjectDetail';
 import { ProjectFormModal } from './components/ProjectFormModal';
 import {
   auth,
+  completeGoogleRedirectSignIn,
   parseFirebaseAuthError,
   signInWithGoogle,
+  signInWithGoogleRedirect,
   signOutUser,
   type AuthErrorInfo,
 } from './firebase';
@@ -118,6 +120,21 @@ function StudioWorkspace() {
   }, []);
 
   useEffect(() => {
+    void completeGoogleRedirectSignIn()
+      .then((redirectUser) => {
+        if (redirectUser) {
+          setActiveView('direct_chat');
+          setSelectedProjectId(null);
+          setViewingCover(false);
+        }
+      })
+      .catch((err) => {
+        const parsed = parseFirebaseAuthError(err, 'Unable to complete Google Sign-In.');
+        if (parsed.kind !== 'cancelled') {
+          setAuthError(parsed);
+        }
+      });
+
     const unsub = onAuthStateChanged(auth, async (nextUser) => {
       // Clear any previous account's data immediately to prevent cross-account flash
       setProjects([]);
@@ -127,6 +144,7 @@ function StudioWorkspace() {
       setUser(nextUser);
 
       if (nextUser) {
+        setAuthError(null);
         setAuthReady(true);
         try {
           await syncUserProfile(nextUser);
@@ -249,6 +267,20 @@ function StudioWorkspace() {
     }
   }
 
+  async function handleGoogleRedirectSignIn() {
+    setSigningIn(true);
+    setAuthError(null);
+    try {
+      await signInWithGoogleRedirect();
+    } catch (err) {
+      const parsed = parseFirebaseAuthError(err, 'Unable to start Google Sign-In redirect.');
+      if (parsed.kind !== 'cancelled') {
+        setAuthError(parsed);
+      }
+      setSigningIn(false);
+    }
+  }
+
   async function handleSignOut() {
     setViewingCover(false);
     await signOutUser();
@@ -300,6 +332,7 @@ function StudioWorkspace() {
         user={user}
         isAdmin={isAdmin}
         onSignIn={handleGoogleSignIn}
+        onRedirectSignIn={handleGoogleRedirectSignIn}
         onEnterStudio={() => setViewingCover(false)}
         onSignOut={handleSignOut}
         signingIn={signingIn}
